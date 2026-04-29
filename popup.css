@@ -1,0 +1,296 @@
+:root {
+  color-scheme: light;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  width: 460px;
+  min-height: 620px;
+  margin: 0;
+  padding: 14px;
+  background: #f7f7f8;
+  color: #171717;
+}
+
+body.sidepanel {
+  width: auto;
+  min-width: 360px;
+  min-height: 100vh;
+}
+
+body.sidepanel .toolbar {
+  grid-template-columns: minmax(130px, 1fr) auto auto;
+}
+
+body.sidepanel .filter-row {
+  grid-template-columns: minmax(130px, 0.9fr) minmax(160px, 1.4fr);
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 18px;
+  letter-spacing: -0.02em;
+}
+
+.header p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #666;
+}
+
+.toolbar {
+  display: grid;
+  grid-template-columns: minmax(110px, 1fr) auto auto auto;
+  gap: 8px;
+  align-items: end;
+  margin-bottom: 10px;
+}
+
+.field {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: #555;
+}
+
+.filter-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.9fr) minmax(220px, 1.4fr);
+  gap: 8px;
+  align-items: end;
+  margin-bottom: 10px;
+}
+
+.category-field,
+.search-field {
+  min-width: 0;
+}
+
+select,
+button,
+.search {
+  border: 1px solid #dedede;
+  border-radius: 10px;
+  background: #fff;
+  color: #171717;
+  font: inherit;
+}
+
+select {
+  width: 100%;
+  height: 34px;
+  padding: 0 9px;
+}
+
+button {
+  height: 34px;
+  padding: 0 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+button:hover:not(:disabled) {
+  border-color: #bcbcbc;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+button.primary {
+  background: #171717;
+  border-color: #171717;
+  color: #fff;
+}
+
+.search {
+  width: 100%;
+  height: 34px;
+  padding: 0 11px;
+}
+
+.status {
+  min-height: 18px;
+  margin-bottom: 8px;
+  color: #666;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.source-note {
+  margin: -2px 0 8px;
+  color: #666;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.source-note a {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.banner {
+  margin-bottom: 10px;
+  padding: 9px 10px;
+  border: 1px solid #ffcf87;
+  border-radius: 12px;
+  background: #fff8e8;
+  color: #6d4300;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.list {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.card {
+  border: 1px solid #e8e8e8;
+  border-radius: 14px;
+  background: #fff;
+  padding: 11px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+.card h2 {
+  margin: 0 0 6px;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.meta {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+  color: #777;
+  font-size: 11px;
+}
+
+.meta span {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #f1f1f1;
+}
+
+.prompt {
+  max-height: 106px;
+  margin: 0 0 10px;
+  padding: 8px;
+  overflow: auto;
+  border-radius: 10px;
+  background: #f8f8f8;
+  color: #333;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pager {
+  position: sticky;
+  bottom: 0;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding-top: 8px;
+  background: #f7f7f8;
+}
+
+#pageInfo {
+  color: #666;
+  font-size: 12px;
+  text-align: center;
+}
+
+.empty {
+  padding: 18px;
+  border: 1px dashed #ddd;
+  border-radius: 14px;
+  background: #fff;
+  color: #777;
+  text-align: center;
+  font-size: 13px;
+}
+
+.hover-preview {
+  position: fixed;
+  z-index: 20;
+  width: 280px;
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  padding: 8px;
+  border: 1px solid #e8e8e8;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.22);
+  pointer-events: none;
+}
+
+.hover-preview[hidden] {
+  display: none;
+}
+
+#hoverPreviewImage {
+  display: block;
+  max-width: 100%;
+  max-height: 260px;
+  object-fit: contain;
+  border-radius: 10px;
+}
+
+#hoverPreviewImage[hidden] {
+  display: none;
+}
+
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid #e5e5e5;
+  border-top-color: #171717;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.spinner[hidden] {
+  display: none;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 430px) {
+  .toolbar,
+  .filter-row {
+    grid-template-columns: 1fr;
+  }
+
+  .actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+}

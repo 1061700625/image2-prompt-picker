@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>GPT Image2 Prompts</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header class="header">
+    <div>
+      <h1>GPT Image2 Prompts</h1>
+      <p>本地缓存 · 多语言 · 分类筛选 · 悬停预览</p>
+    </div>
+  </header>
+
+  <section class="toolbar">
+    <label class="field">
+      <span>语言</span>
+      <select id="langSelect"></select>
+    </label>
+
+    <button id="sidePanelBtn" type="button">侧边栏</button>
+    <button id="checkBtn" type="button">检查更新</button>
+    <button id="syncBtn" type="button" class="primary">同步</button>
+  </section>
+
+  <div class="filter-row">
+    <label class="field category-field">
+      <span>分类</span>
+      <select id="categorySelect">
+        <option value="">全部分类</option>
+      </select>
+    </label>
+
+    <label class="field search-field">
+      <span>搜索</span>
+      <input id="searchInput" class="search" placeholder="标题、分类、Case 编号或 Prompt" />
+    </label>
+  </div>
+
+  <div id="updateBanner" class="banner" hidden>
+    发现远端有更新，点击“同步”即可更新本地缓存。
+  </div>
+
+  <div id="status" class="status">正在加载...</div>
+
+  <div class="source-note">作者：小锋学长生活大爆炸 · 数据来源：<a href="https://github.com/EvoLinkAI/awesome-gpt-image-2-prompts" target="_blank" rel="noreferrer">EvoLinkAI/awesome-gpt-image-2-prompts</a></div>
+
+  <main id="promptList" class="list"></main>
+
+  <footer class="pager">
+    <button id="prevPageBtn" type="button">上一页</button>
+    <span id="pageInfo">第 1 / 1 页</span>
+    <button id="nextPageBtn" type="button">下一页</button>
+  </footer>
+
+  <div id="hoverPreview" class="hover-preview" hidden aria-hidden="true">
+    <div id="hoverPreviewSpinner" class="spinner" hidden></div>
+    <img id="hoverPreviewImage" alt="Prompt output preview" hidden />
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

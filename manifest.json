@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "GPT Image2 Prompts",
+  "version": "0.3.4",
+  "description": "Browse GPT Image2 prompts from a public GitHub source locally and fill them into ChatGPT quickly.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "GPT Image2 Prompts"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": [
+    "storage",
+    "activeTab",
+    "alarms",
+    "sidePanel"
+  ],
+  "host_permissions": [
+    "https://api.github.com/*",
+    "https://raw.githubusercontent.com/*",
+    "https://github.com/*",
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*"
+      ],
+      "js": [
+        "chatgpt-content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; img-src 'self' https://github.com https://raw.githubusercontent.com data:; connect-src 'self' https://api.github.com https://raw.githubusercontent.com"
+  },
+  "short_name": "GPT Image2 Prompts",
+  "author": "小锋学长生活大爆炸",
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  }
+}
