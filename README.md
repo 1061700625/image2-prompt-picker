@@ -11,6 +11,10 @@ https://github.com/EvoLinkAI/awesome-gpt-image-2-prompts
 
 本项目不是 EvoLinkAI 官方项目，仅基于其公开仓库数据进行整理和浏览展示。
 
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/638039a5-221f-4e0f-b6cd-55e0c7eb81d7" alt="" width="400"/>
+</p>
+
 ## 功能特性
 
 * 支持 GPT Image 2 Prompt 本地浏览
