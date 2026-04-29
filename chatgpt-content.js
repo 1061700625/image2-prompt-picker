@@ -1,29 +1,43 @@
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message?.type !== "FILL_CHATGPT_PROMPT") return;
+const MESSAGE_TYPE = "FILL_CHATGPT_PROMPT";
 
-  const ok = fillPrompt(message.payload || "");
-  sendResponse({ ok });
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type !== MESSAGE_TYPE) return;
+
+  fillPrompt(message.payload || "")
+    .then(sendResponse)
+    .catch(error => {
+      console.warn("Fill ChatGPT prompt failed:", error);
+      sendResponse({ ok: false, reason: error?.message || "unknown_error" });
+    });
 
   return true;
 });
 
-function fillPrompt(text) {
-  const composer = findComposer();
+async function fillPrompt(text) {
+  const composer = await waitForComposer(2500);
 
-  if (!composer) return false;
-
-  composer.focus();
-
-  if (composer.tagName === "TEXTAREA" || composer.tagName === "INPUT") {
-    setNativeInputValue(composer, text);
-    return true;
+  if (!composer) {
+    return { ok: false, reason: "composer_not_found" };
   }
 
-  if (composer.isContentEditable) {
-    return setContentEditableValue(composer, text);
+  const ok = await writeToComposer(composer, text);
+
+  return {
+    ok,
+    reason: ok ? "filled" : "write_failed"
+  };
+}
+
+async function waitForComposer(timeoutMs) {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const composer = findComposer();
+    if (composer) return composer;
+    await sleep(120);
   }
 
-  return false;
+  return findComposer();
 }
 
 function findComposer() {
@@ -31,41 +45,174 @@ function findComposer() {
     "#prompt-textarea",
     "[data-testid='composer-text-input']",
     "div.ProseMirror[contenteditable='true']",
-    "div[contenteditable='true'][role='textbox']",
+    "[contenteditable='true'][role='textbox']",
+    "[contenteditable='true'][aria-label]",
     "div[contenteditable='true']",
+    "textarea[data-testid='composer-text-input']",
+    "textarea[placeholder]",
     "textarea"
   ];
 
-  for (const selector of selectors) {
-    const nodes = [...document.querySelectorAll(selector)];
-    const visible = nodes.find(isVisible);
+  const candidates = uniqueElements(
+    selectors.flatMap(selector => [...document.querySelectorAll(selector)])
+  )
+    .map(normalizeComposerElement)
+    .filter(Boolean)
+    .filter(isUsableComposer);
 
-    if (visible) return visible;
+  candidates.sort((a, b) => getComposerScore(b) - getComposerScore(a));
+
+  return candidates[0] || null;
+}
+
+function normalizeComposerElement(el) {
+  if (!el) return null;
+
+  if (isTextInput(el) || el.isContentEditable) {
+    return el;
   }
+
+  const editable = el.querySelector?.("[contenteditable='true']");
+  if (editable) return editable;
+
+  const textarea = el.querySelector?.("textarea");
+  if (textarea) return textarea;
 
   return null;
 }
 
-function isVisible(el) {
-  const rect = el.getBoundingClientRect();
-  const style = window.getComputedStyle(el);
+function isUsableComposer(el) {
+  if (!el) return false;
 
-  return (
-    rect.width > 0 &&
-    rect.height > 0 &&
-    style.visibility !== "hidden" &&
-    style.display !== "none"
-  );
+  const style = window.getComputedStyle(el);
+  if (style.display === "none" || style.visibility === "hidden") return false;
+  if (el.closest("[aria-hidden='true']")) return false;
+
+  if (isTextInput(el) && (el.disabled || el.readOnly)) return false;
+  if (el.getAttribute("contenteditable") === "false") return false;
+
+  const rect = el.getBoundingClientRect();
+  const hasBox = rect.width > 1 && rect.height > 1;
+  const hasClientRect = el.getClientRects().length > 0;
+
+  return hasBox || hasClientRect || el === document.activeElement;
+}
+
+function getComposerScore(el) {
+  const rect = el.getBoundingClientRect();
+  const id = el.id || "";
+  const testId = el.getAttribute("data-testid") || "";
+  const role = el.getAttribute("role") || "";
+  const className = String(el.className || "");
+
+  let score = 0;
+
+  if (id === "prompt-textarea") score += 100;
+  if (/composer|prompt/i.test(testId)) score += 80;
+  if (role === "textbox") score += 45;
+  if (el.isContentEditable) score += 35;
+  if (isTextInput(el)) score += 30;
+  if (/ProseMirror/i.test(className)) score += 25;
+
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  if (viewportHeight && rect.top > viewportHeight * 0.35) score += 20;
+  if (rect.width > 200) score += 10;
+
+  return score;
+}
+
+async function writeToComposer(el, value) {
+  el.focus();
+  await sleep(30);
+
+  if (isTextInput(el)) {
+    setNativeInputValue(el, value);
+    return el.value === value;
+  }
+
+  const editable = el.isContentEditable
+    ? el
+    : el.closest?.("[contenteditable='true']") || el.querySelector?.("[contenteditable='true']");
+
+  if (!editable) return false;
+
+  return setContentEditableValue(editable, value);
 }
 
 function setNativeInputValue(el, value) {
-  const proto = Object.getPrototypeOf(el);
+  const proto = el.tagName === "TEXTAREA"
+    ? HTMLTextAreaElement.prototype
+    : HTMLInputElement.prototype;
+
   const descriptor = Object.getOwnPropertyDescriptor(proto, "value");
 
   if (descriptor?.set) {
     descriptor.set.call(el, value);
   } else {
     el.value = value;
+  }
+
+  dispatchComposerEvents(el, value);
+}
+
+function setContentEditableValue(el, value) {
+  el.focus();
+
+  try {
+    const selection = window.getSelection();
+    const range = document.createRange();
+
+    range.selectNodeContents(el);
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    const inserted = document.execCommand("insertText", false, value);
+    dispatchComposerEvents(el, value);
+
+    if (inserted && containsPromptText(el, value)) {
+      moveCaretToEnd(el);
+      return true;
+    }
+  } catch (error) {
+    console.warn("execCommand insertText failed:", error);
+  }
+
+  try {
+    replaceEditableDom(el, value);
+    dispatchComposerEvents(el, value);
+    moveCaretToEnd(el);
+
+    return containsPromptText(el, value);
+  } catch (error) {
+    console.warn("Direct contenteditable update failed:", error);
+    return false;
+  }
+}
+
+function replaceEditableDom(el, value) {
+  while (el.firstChild) {
+    el.removeChild(el.firstChild);
+  }
+
+  const lines = String(value).split("\n");
+
+  for (const line of lines) {
+    const p = document.createElement("p");
+    p.textContent = line || "\u00A0";
+    el.appendChild(p);
+  }
+}
+
+function dispatchComposerEvents(el, value) {
+  try {
+    el.dispatchEvent(new InputEvent("beforeinput", {
+      bubbles: true,
+      cancelable: true,
+      inputType: "insertText",
+      data: value
+    }));
+  } catch (_) {
+    // Some browsers disallow constructing beforeinput. The input event below is enough for fallback.
   }
 
   el.dispatchEvent(new InputEvent("input", {
@@ -75,45 +222,45 @@ function setNativeInputValue(el, value) {
   }));
 
   el.dispatchEvent(new Event("change", { bubbles: true }));
+  el.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true, key: " ", code: "Space" }));
 }
 
-function setContentEditableValue(el, value) {
-  el.focus();
-
+function moveCaretToEnd(el) {
   try {
-    document.execCommand("selectAll", false, null);
-    const inserted = document.execCommand("insertText", false, value);
+    const range = document.createRange();
+    const selection = window.getSelection();
 
-    el.dispatchEvent(new InputEvent("input", {
-      bubbles: true,
-      inputType: "insertText",
-      data: value
-    }));
-
-    if (inserted) return true;
-  } catch (error) {
-    console.warn("execCommand failed:", error);
+    range.selectNodeContents(el);
+    range.collapse(false);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  } catch (_) {
+    // Non-critical.
   }
+}
 
-  try {
-    el.innerHTML = "";
-    const lines = String(value).split("\n");
+function containsPromptText(el, value) {
+  const expected = normalizeText(value).slice(0, 80);
+  if (!expected) return true;
 
-    for (const line of lines) {
-      const p = document.createElement("p");
-      p.textContent = line || "\u00A0";
-      el.appendChild(p);
-    }
+  return normalizeText(el.value || el.innerText || el.textContent || "").includes(expected);
+}
 
-    el.dispatchEvent(new InputEvent("input", {
-      bubbles: true,
-      inputType: "insertText",
-      data: value
-    }));
+function normalizeText(value) {
+  return String(value || "")
+    .replace(/\u00A0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
-    return true;
-  } catch (error) {
-    console.warn("Direct contenteditable update failed:", error);
-    return false;
-  }
+function isTextInput(el) {
+  return el?.tagName === "TEXTAREA" || el?.tagName === "INPUT";
+}
+
+function uniqueElements(items) {
+  return [...new Set(items)];
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }

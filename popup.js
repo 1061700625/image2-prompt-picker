@@ -379,22 +379,63 @@ async function fillChatGPT(promptText) {
     return;
   }
 
-  chrome.tabs.sendMessage(
-    tab.id,
-    {
-      type: "FILL_CHATGPT_PROMPT",
-      payload: promptText
-    },
-    async response => {
-      if (chrome.runtime.lastError || !response?.ok) {
-        await navigator.clipboard.writeText(promptText);
-        setStatus("未能填入输入框，已复制到剪贴板");
-        return;
-      }
+  let response = await sendFillMessage(tab.id, promptText);
 
-      setStatus("已填入 ChatGPT 输入框");
-    }
-  );
+  if (!response?.ok) {
+    response = await injectContentScriptAndRetry(tab.id, promptText);
+  }
+
+  if (!response?.ok) {
+    await navigator.clipboard.writeText(promptText);
+    const reason = response?.reason ? `，原因：${response.reason}` : "";
+    setStatus(`未能填入输入框${reason}，已复制到剪贴板`);
+    return;
+  }
+
+  setStatus("已填入 ChatGPT 输入框");
+}
+
+function sendFillMessage(tabId, promptText) {
+  return new Promise(resolve => {
+    chrome.tabs.sendMessage(
+      tabId,
+      {
+        type: "FILL_CHATGPT_PROMPT",
+        payload: promptText
+      },
+      response => {
+        if (chrome.runtime.lastError) {
+          resolve({
+            ok: false,
+            reason: chrome.runtime.lastError.message || "message_error"
+          });
+          return;
+        }
+
+        resolve(response || { ok: false, reason: "empty_response" });
+      }
+    );
+  });
+}
+
+async function injectContentScriptAndRetry(tabId, promptText) {
+  if (!chrome.scripting?.executeScript) {
+    return { ok: false, reason: "scripting_unavailable" };
+  }
+
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ["chatgpt-content.js"]
+    });
+
+    return sendFillMessage(tabId, promptText);
+  } catch (error) {
+    return {
+      ok: false,
+      reason: error?.message || "inject_failed"
+    };
+  }
 }
 
 function sendMessage(message) {
