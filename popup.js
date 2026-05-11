@@ -1,4 +1,12 @@
 const PAGE_SIZE = 12;
+const TRANSLATE_ENDPOINT = "https://translate.xfxuezhang.workers.dev/";
+const TRANSLATE_TARGET_LANG = "zh";
+
+const translatedPromptItems = new Map();
+const translatedItemIds = new Set();
+const translatingItemIds = new Set();
+const translatedTextCache = new Map();
+
 
 const els = {
   langSelect: document.getElementById("langSelect"),
@@ -6,6 +14,8 @@ const els = {
   sidePanelBtn: document.getElementById("sidePanelBtn"),
   checkBtn: document.getElementById("checkBtn"),
   syncBtn: document.getElementById("syncBtn"),
+  clearCacheBtn: document.getElementById("clearCacheBtn"),
+  authorLink: document.getElementById("authorLink"),
   searchInput: document.getElementById("searchInput"),
   status: document.getElementById("status"),
   promptList: document.getElementById("promptList"),
@@ -64,6 +74,14 @@ function bindEvents() {
   }
 
   els.syncBtn.addEventListener("click", syncCurrentLanguage);
+
+  if (els.clearCacheBtn) {
+    els.clearCacheBtn.addEventListener("click", clearCache);
+  }
+
+  if (els.authorLink) {
+    els.authorLink.addEventListener("click", openAuthorRepository);
+  }
 
   els.checkBtn.addEventListener("click", async () => {
     setBusy(true, "正在检查更新...");
@@ -130,6 +148,39 @@ async function syncCurrentLanguage() {
 
   applyState(res);
   setBusy(false);
+}
+
+async function clearCache() {
+  setBusy(true, "正在清空本地缓存...");
+
+  const res = await sendMessage({ type: "CLEAR_CACHE" });
+
+  translatedPromptItems.clear();
+  translatedItemIds.clear();
+  translatingItemIds.clear();
+  translatedTextCache.clear();
+
+  applyState(res);
+
+  if (res?.ok) {
+    setStatus(`已清空本地缓存，当前语言 ${getCurrentLanguageLabel()}，可点击“同步”重新获取数据`);
+  }
+
+  setBusy(false);
+}
+
+function openAuthorRepository(event) {
+  const url = els.authorLink?.href || "https://github.com/1061700625/image2-prompt-picker";
+
+  if (!chrome.tabs?.create) return;
+
+  event.preventDefault();
+  chrome.tabs.create({ url });
+}
+
+function getCurrentLanguageLabel() {
+  const selected = els.langSelect.selectedOptions?.[0]?.textContent;
+  return selected || els.langSelect.value || state?.settings?.selectedLang || "zh-CN";
 }
 
 function applyState(res) {
@@ -222,17 +273,23 @@ function render() {
   }
 
   for (const item of pageItems) {
+    const itemId = getPromptItemId(item);
+    const displayItem = getDisplayPromptItem(item);
+    const isTranslated = translatedItemIds.has(itemId);
+    const isTranslating = translatingItemIds.has(itemId);
+
     const card = document.createElement("section");
     card.className = "card";
+    card.dataset.promptId = itemId;
 
     const title = document.createElement("h2");
-    title.textContent = item.title;
+    title.textContent = displayItem.title;
 
     const meta = document.createElement("div");
     meta.className = "meta";
 
     const categoryBadge = document.createElement("span");
-    categoryBadge.textContent = item.category || "未分类";
+    categoryBadge.textContent = displayItem.category || "未分类";
 
     const caseNo = document.createElement("span");
     caseNo.textContent = `Case ${item.caseNo}`;
@@ -244,7 +301,7 @@ function render() {
 
     const prompt = document.createElement("p");
     prompt.className = "prompt";
-    prompt.textContent = item.prompt;
+    prompt.textContent = displayItem.prompt;
 
     const actions = document.createElement("div");
     actions.className = "actions";
@@ -252,14 +309,26 @@ function render() {
     const fillBtn = document.createElement("button");
     fillBtn.className = "primary";
     fillBtn.textContent = "填入 ChatGPT";
-    fillBtn.addEventListener("click", () => fillChatGPT(item.prompt));
+    fillBtn.addEventListener("click", () => fillChatGPT(displayItem.prompt));
 
     const copyBtn = document.createElement("button");
     copyBtn.textContent = "复制";
     copyBtn.addEventListener("click", async () => {
-      await navigator.clipboard.writeText(item.prompt);
-      setStatus("已复制 Prompt");
+      await navigator.clipboard.writeText(displayItem.prompt);
+      setStatus(isTranslated ? "已复制翻译后的 Prompt" : "已复制 Prompt");
     });
+
+    const translateBtn = document.createElement("button");
+    translateBtn.className = "translate-toggle";
+    translateBtn.textContent = isTranslating
+      ? "翻译中..."
+      : isTranslated
+        ? "还原原文"
+        : "翻译";
+    translateBtn.disabled = isTranslating;
+    translateBtn.setAttribute("aria-label", isTranslated ? "还原为原文" : "翻译为中文");
+    if (isTranslated) translateBtn.classList.add("is-translated");
+    translateBtn.addEventListener("click", () => toggleTranslation(item));
 
     const previewBtn = document.createElement("button");
     previewBtn.textContent = "预览";
@@ -270,12 +339,157 @@ function render() {
     previewBtn.addEventListener("focus", () => showHoverPreview(item, previewBtn));
     previewBtn.addEventListener("blur", hideHoverPreview);
 
-    actions.append(fillBtn, copyBtn, previewBtn);
+    actions.append(fillBtn, copyBtn, translateBtn, previewBtn);
     card.append(title, meta, prompt, actions);
     els.promptList.appendChild(card);
   }
 
   renderPager();
+}
+
+function getPromptItemId(item) {
+  return item?.id || `${item?.lang || ""}:${item?.file || ""}:${item?.caseNo || ""}:${item?.title || ""}`;
+}
+
+function getDisplayPromptItem(item) {
+  const itemId = getPromptItemId(item);
+
+  if (!translatedItemIds.has(itemId)) {
+    return item;
+  }
+
+  return {
+    ...item,
+    ...translatedPromptItems.get(itemId)
+  };
+}
+
+async function toggleTranslation(item) {
+  const itemId = getPromptItemId(item);
+
+  if (translatingItemIds.has(itemId)) return;
+
+  if (translatedItemIds.has(itemId)) {
+    translatedItemIds.delete(itemId);
+    setStatus("已还原为原文");
+    render();
+    return;
+  }
+
+  translatingItemIds.add(itemId);
+  setStatus("正在翻译为中文...");
+  render();
+
+  try {
+    if (!translatedPromptItems.has(itemId)) {
+      const [title, category, prompt] = await Promise.all([
+        translateText(item.title),
+        item.category ? translateText(item.category) : Promise.resolve(""),
+        translateText(item.prompt)
+      ]);
+
+      translatedPromptItems.set(itemId, {
+        title: title || item.title,
+        category: category || item.category,
+        prompt: prompt || item.prompt
+      });
+    }
+
+    translatedItemIds.add(itemId);
+    setStatus("已翻译为中文，再次点击“还原原文”可恢复");
+  } catch (error) {
+    console.warn("Translate failed:", error);
+    setStatus(`翻译失败：${error.message || "未知错误"}`);
+  } finally {
+    translatingItemIds.delete(itemId);
+    render();
+  }
+}
+
+async function translateText(text) {
+  const sourceText = String(text || "").trim();
+  if (!sourceText) return "";
+
+  if (translatedTextCache.has(sourceText)) {
+    return translatedTextCache.get(sourceText);
+  }
+
+  const url = buildTranslateUrl(sourceText);
+  const res = await fetch(url.toString(), { cache: "no-store" });
+
+  if (!res.ok) {
+    throw new Error(`翻译接口 HTTP ${res.status}`);
+  }
+
+  const raw = await res.text();
+  const translatedText = parseTranslateResponse(raw);
+
+  if (!translatedText) {
+    throw new Error("翻译结果为空");
+  }
+
+  translatedTextCache.set(sourceText, translatedText);
+  return translatedText;
+}
+
+function buildTranslateUrl(text) {
+  const url = new URL(TRANSLATE_ENDPOINT);
+  url.searchParams.set("dt", "t");
+  url.searchParams.set("sl", "auto");
+  url.searchParams.set("tl", TRANSLATE_TARGET_LANG);
+  url.searchParams.set("q", text);
+  return url;
+}
+
+function parseTranslateResponse(raw) {
+  const body = String(raw || "").trim();
+  if (!body) return "";
+
+  try {
+    const data = JSON.parse(body);
+    return extractTranslatedText(data).trim();
+  } catch (error) {
+    return body;
+  }
+}
+
+function extractTranslatedText(data) {
+  if (!data) return "";
+
+  if (typeof data === "string") return data;
+
+  if (Array.isArray(data)) {
+    const googleArrayText = extractGoogleArrayText(data);
+    if (googleArrayText) return googleArrayText;
+
+    return data
+      .map(item => extractTranslatedText(item))
+      .filter(Boolean)
+      .join("");
+  }
+
+  if (Array.isArray(data.sentences)) {
+    return data.sentences
+      .map(sentence => sentence?.trans || "")
+      .filter(Boolean)
+      .join("");
+  }
+
+  if (typeof data.translatedText === "string") return data.translatedText;
+  if (typeof data.translation === "string") return data.translation;
+  if (typeof data.text === "string") return data.text;
+
+  return "";
+}
+
+function extractGoogleArrayText(data) {
+  const sentenceParts = data?.[0];
+  if (!Array.isArray(sentenceParts)) return "";
+
+  return sentenceParts
+    .map(part => Array.isArray(part) && typeof part[0] === "string" ? part[0] : "")
+    .filter(Boolean)
+    .join("");
 }
 
 function renderPager() {
@@ -444,6 +658,7 @@ function sendMessage(message) {
 
 function setBusy(isBusy, text) {
   els.syncBtn.disabled = isBusy;
+  if (els.clearCacheBtn) els.clearCacheBtn.disabled = isBusy;
   els.checkBtn.disabled = isBusy;
   if (els.sidePanelBtn) els.sidePanelBtn.disabled = isBusy;
   els.langSelect.disabled = isBusy;

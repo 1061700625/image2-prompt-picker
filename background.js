@@ -93,6 +93,9 @@ async function handleMessage(message) {
     case "CHECK_UPDATES":
       return checkForUpdates();
 
+    case "CLEAR_CACHE":
+      return clearCache();
+
     default:
       return { ok: false, error: "Unknown message type" };
   }
@@ -231,6 +234,36 @@ async function syncPrompts(lang) {
       hasUpdate: false,
       remoteCommitSha: commit.sha,
       remoteCommitDate: commit.date,
+      lastCheckedAt: Date.now()
+    }
+  });
+
+  await chrome.action.setBadgeText({ text: "" });
+
+  return getPromptState();
+}
+
+async function clearCache() {
+  await initSettings();
+
+  const { settings } = await chrome.storage.local.get("settings");
+  const selectedLang = settings?.selectedLang || detectDefaultLanguage();
+  const allItems = await chrome.storage.local.get(null);
+  const cacheKeys = Object.keys(allItems).filter(key => key.startsWith("promptCache:"));
+
+  if (cacheKeys.length) {
+    await chrome.storage.local.remove(cacheKeys);
+  }
+
+  await chrome.storage.local.set({
+    settings: {
+      ...DEFAULT_SETTINGS,
+      ...settings,
+      selectedLang: LANG_FILES[selectedLang] ? selectedLang : "zh-CN",
+      initialized: false,
+      hasUpdate: false,
+      remoteCommitSha: null,
+      remoteCommitDate: null,
       lastCheckedAt: Date.now()
     }
   });

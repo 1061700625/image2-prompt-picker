@@ -23,7 +23,7 @@ body.sidepanel {
 }
 
 body.sidepanel .toolbar {
-  grid-template-columns: minmax(130px, 1fr) auto auto;
+  grid-template-columns: minmax(130px, 1fr) auto auto auto;
 }
 
 body.sidepanel .filter-row {
@@ -51,7 +51,7 @@ h1 {
 
 .toolbar {
   display: grid;
-  grid-template-columns: minmax(110px, 1fr) auto auto auto;
+  grid-template-columns: minmax(110px, 1fr) auto auto auto auto;
   gap: 8px;
   align-items: end;
   margin-bottom: 10px;
@@ -113,6 +113,12 @@ button.primary {
   background: #171717;
   border-color: #171717;
   color: #fff;
+}
+
+button.translate-toggle.is-translated {
+  border-color: #c7ddff;
+  background: #eef5ff;
+  color: #174ea6;
 }
 
 .search {
