@@ -1,21 +1,22 @@
 const OWNER = "EvoLinkAI";
-const REPO = "awesome-gpt-image-2-prompts";
+const REPO = "awesome-gpt-image-2-API-and-Prompts";
 const BRANCH = "main";
+const CASES_DIR = "cases";
 const CHECK_ALARM = "check-evolink-prompt-updates";
 
-const LANG_FILES = {
-  en: "README.md",
-  "zh-CN": "README_zh-CN.md",
-  "zh-TW": "README_zh-TW.md",
-  ja: "README_ja.md",
-  ko: "README_ko.md",
-  es: "README_es.md",
-  pt: "README_pt.md",
-  de: "README_de.md",
-  fr: "README_fr.md",
-  tr: "README_tr.md",
-  ru: "README_ru.md"
-};
+const SUPPORTED_LANGS = [
+  "en",
+  "zh-CN",
+  "zh-TW",
+  "ja",
+  "ko",
+  "es",
+  "pt",
+  "de",
+  "fr",
+  "tr",
+  "ru"
+];
 
 const LANG_LABELS = {
   en: "English",
@@ -118,7 +119,7 @@ async function initSettings() {
     settings: {
       ...DEFAULT_SETTINGS,
       ...settings,
-      selectedLang: LANG_FILES[settings.selectedLang] ? settings.selectedLang : "zh-CN"
+      selectedLang: isSupportedLang(settings.selectedLang) ? settings.selectedLang : "zh-CN"
     }
   });
 }
@@ -164,9 +165,9 @@ async function getPromptState() {
     settings,
     prompts: cache?.prompts || [],
     cache,
-    languages: Object.entries(LANG_FILES).map(([code, file]) => ({
+    languages: SUPPORTED_LANGS.map(code => ({
       code,
-      file,
+      file: getLanguageFilePattern(code),
       label: LANG_LABELS[code] || code
     }))
   };
@@ -199,23 +200,32 @@ async function setLanguage(lang) {
 async function syncPrompts(lang) {
   assertSupportedLang(lang);
 
-  const file = LANG_FILES[lang];
-  const [commit, markdown] = await Promise.all([
-    fetchLatestCommit(file),
-    fetchRawMarkdown(file)
+  const files = await fetchCaseMarkdownFiles(lang);
+  const [commit, docs] = await Promise.all([
+    fetchLatestCommit(CASES_DIR),
+    Promise.all(files.map(file => fetchRawMarkdownFile(file)))
   ]);
 
-  const prompts = parseMarkdownPrompts(markdown, lang, file);
+  const prompts = docs
+    .flatMap(doc => parseMarkdownPrompts(doc.markdown, lang, doc.path, doc.category, doc.featureSlug))
+    .sort((a, b) => {
+      const byCategory = String(a.category || "").localeCompare(String(b.category || ""));
+      if (byCategory !== 0) return byCategory;
+      return Number(a.caseNo) - Number(b.caseNo);
+    });
+
   if (!prompts.length) {
-    throw new Error(`No prompts parsed from ${file}`);
+    throw new Error(`No prompts parsed from ${CASES_DIR} for ${lang}`);
   }
 
   const cacheKey = getCacheKey(lang);
+  const filePaths = files.map(file => file.path);
 
   await chrome.storage.local.set({
     [cacheKey]: {
       lang,
-      file,
+      file: filePaths.join(", "),
+      files: filePaths,
       prompts,
       fetchedAt: Date.now(),
       sourceCommitSha: commit.sha,
@@ -259,7 +269,7 @@ async function clearCache() {
     settings: {
       ...DEFAULT_SETTINGS,
       ...settings,
-      selectedLang: LANG_FILES[selectedLang] ? selectedLang : "zh-CN",
+      selectedLang: isSupportedLang(selectedLang) ? selectedLang : "zh-CN",
       initialized: false,
       hasUpdate: false,
       remoteCommitSha: null,
@@ -278,9 +288,7 @@ async function checkForUpdates() {
 
   const { settings } = await chrome.storage.local.get("settings");
   const selectedLang = settings.selectedLang || "zh-CN";
-  const file = LANG_FILES[selectedLang];
-
-  const remote = await fetchLatestCommit(file);
+  const remote = await fetchLatestCommit(CASES_DIR);
   const cacheKey = getCacheKey(selectedLang);
   const cacheStore = await chrome.storage.local.get(cacheKey);
   const local = cacheStore[cacheKey] || null;
@@ -320,17 +328,14 @@ async function checkForUpdates() {
   };
 }
 
-async function fetchLatestCommit(file) {
+async function fetchLatestCommit(path) {
   const url = new URL(`https://api.github.com/repos/${OWNER}/${REPO}/commits`);
   url.searchParams.set("sha", BRANCH);
   url.searchParams.set("per_page", "1");
-  url.searchParams.set("path", file);
+  if (path) url.searchParams.set("path", path);
 
   const res = await fetch(url.toString(), {
-    headers: {
-      Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28"
-    }
+    headers: getGitHubHeaders()
   });
 
   if (!res.ok) {
@@ -341,7 +346,8 @@ async function fetchLatestCommit(file) {
   const item = data?.[0];
 
   if (!item) {
-    throw new Error(`No commit found for ${file}`);
+    if (path) return fetchLatestCommit("");
+    throw new Error(`No commit found for ${REPO}`);
   }
 
   return {
@@ -350,18 +356,69 @@ async function fetchLatestCommit(file) {
   };
 }
 
-async function fetchRawMarkdown(file) {
-  const url = `https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}/${file}`;
+async function fetchCaseMarkdownFiles(lang) {
+  const url = new URL(`https://api.github.com/repos/${OWNER}/${REPO}/contents/${CASES_DIR}`);
+  url.searchParams.set("ref", BRANCH);
+
+  const res = await fetch(url.toString(), {
+    cache: "no-store",
+    headers: getGitHubHeaders()
+  });
+
+  if (!res.ok) {
+    throw new Error(`GitHub contents API failed: HTTP ${res.status}`);
+  }
+
+  const entries = await res.json();
+  if (!Array.isArray(entries)) {
+    throw new Error(`${CASES_DIR} is not a directory`);
+  }
+
+  const files = entries
+    .filter(entry => entry?.type === "file" && /\.md$/i.test(entry.name || ""))
+    .filter(entry => getCaseFileLang(entry.name) === lang)
+    .map(entry => {
+      const featureSlug = getCaseFeatureSlug(entry.name);
+      return {
+        name: entry.name,
+        path: entry.path || `${CASES_DIR}/${entry.name}`,
+        downloadUrl: entry.download_url || "",
+        featureSlug,
+        category: getCaseFeatureLabel(featureSlug)
+      };
+    })
+    .sort((a, b) => a.path.localeCompare(b.path));
+
+  if (!files.length) {
+    throw new Error(`No ${lang} markdown files found in ${CASES_DIR}`);
+  }
+
+  return files;
+}
+
+async function fetchRawMarkdownFile(file) {
+  const url = file.downloadUrl || `https://raw.githubusercontent.com/${OWNER}/${REPO}/${BRANCH}/${file.path}`;
   const res = await fetch(url, { cache: "no-store" });
 
   if (!res.ok) {
-    throw new Error(`Markdown fetch failed: ${file}, HTTP ${res.status}`);
+    throw new Error(`Markdown fetch failed: ${file.path}, HTTP ${res.status}`);
   }
 
-  return res.text();
+  return {
+    ...file,
+    markdown: await res.text()
+  };
 }
 
-function parseMarkdownPrompts(markdown, lang, file) {
+function getGitHubHeaders() {
+  return {
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28"
+  };
+}
+
+
+function parseMarkdownPrompts(markdown, lang, file, fallbackCategory = "", featureSlug = "") {
   const normalized = normalizeMarkdown(markdown);
   const caseMatches = [...normalized.matchAll(/###\s+Case\s+(\d+):\s+([\s\S]*?)(?=\n|\s+\|\s*Output\s*\|)/g)];
 
@@ -380,7 +437,8 @@ function parseMarkdownPrompts(markdown, lang, file) {
     if (!prompt) continue;
 
     const title = cleanMarkdownTitle(rawTitle);
-    const category = findNearestSection(normalized, start);
+    const sectionCategory = findNearestSection(normalized, start);
+    const category = sectionCategory || fallbackCategory || getCaseFeatureLabel(featureSlug);
 
     const image = extractOutputImage(body, file);
 
@@ -412,16 +470,60 @@ function normalizeMarkdown(markdown) {
 }
 
 function extractPrompt(body) {
-  const labelPattern = /(?:\*{1,4}\s*)?(?:Prompt|提示词|プロンプト|프롬프트|Запрос|İstem|İpucu|Eingabeaufforderung|Indicación|Invite)(?:\s*:)?(?:\s*\*{1,4})?\s*```[a-zA-Z0-9_-]*\n?([\s\S]*?)```/i;
-  const labeled = body.match(labelPattern);
+  const labelPattern = /(?:\*{1,4}\s*)?(?:Prompt|提示词|プロンプト|프롬프트|Запрос|İstem|İpucu|Eingabeaufforderung|Indicación|Invite)(?:\s*[:：])?(?:\s*\*{1,4})?\s*```[a-zA-Z0-9_-]*\n?([\s\S]*?)```/i;
+  const labeledFence = body.match(labelPattern);
 
-  if (labeled?.[1]) {
-    return cleanupPrompt(labeled[1]);
+  if (labeledFence?.[1]) {
+    return cleanupPrompt(labeledFence[1]);
   }
 
-  const fallback = body.match(/```[a-zA-Z0-9_-]*\n?([\s\S]*?)```/);
-  return fallback?.[1] ? cleanupPrompt(fallback[1]) : "";
+  const fallbackFence = body.match(/```[a-zA-Z0-9_-]*\n?([\s\S]*?)```/);
+  if (fallbackFence?.[1]) {
+    return cleanupPrompt(fallbackFence[1]);
+  }
+
+  const labelOnlyPattern = /(?:^|\n)\s*(?:\*{0,4}\s*)?(?:Prompt|提示词|プロンプト|프롬프트|Запрос|İstem|İpucu|Eingabeaufforderung|Indicación|Invite)(?:\s*[:：])(?:\s*\*{0,4})?\s*/i;
+  const labelOnly = body.match(labelOnlyPattern);
+
+  if (!labelOnly) return "";
+
+  const promptStart = labelOnly.index + labelOnly[0].length;
+  const rawPrompt = body.slice(promptStart);
+  return cleanupPrompt(stripPromptFormatting(rawPrompt));
 }
+
+function stripPromptFormatting(prompt) {
+  let source = String(prompt || "")
+    .replace(/^(?:\s*>\s*)+/gm, "")
+    .trim();
+
+  source = source
+    .replace(/^```[a-zA-Z0-9_-]*\n?/, "")
+    .replace(/```\s*$/, "")
+    .trim();
+
+  source = source
+    .replace(/^`([\s\S]*)`$/g, "$1")
+    .trim();
+
+  return stripCommonIndent(source);
+}
+
+function stripCommonIndent(text) {
+  const lines = String(text || "").replace(/\t/g, "    ").split("\n");
+  const indents = lines
+    .filter(line => line.trim())
+    .map(line => line.match(/^ */)?.[0].length || 0);
+
+  const minIndent = indents.length ? Math.min(...indents) : 0;
+  if (!minIndent) return lines.join("\n").trim();
+
+  return lines
+    .map(line => line.startsWith(" ".repeat(minIndent)) ? line.slice(minIndent) : line)
+    .join("\n")
+    .trim();
+}
+
 
 function extractOutputImage(body, file) {
   const outputBlock = findOutputBlock(body) || body;
@@ -482,7 +584,7 @@ function resolveRepositoryImageUrl(src, file) {
   if (/^data:/i.test(cleanSrc)) return cleanSrc;
 
   if (/^https?:\/\//i.test(cleanSrc)) {
-    if (/^https:\/\/github\.com\/EvoLinkAI\/awesome-gpt-image-2-prompts\/blob\/main\//i.test(cleanSrc)) {
+    if (isRepositoryBlobUrl(cleanSrc)) {
       return ensureRawTrue(cleanSrc);
     }
 
@@ -516,6 +618,60 @@ function normalizeRepositoryPath(src, file) {
     .join("/");
 
   return `${encodedPath}${suffix}`;
+}
+
+function isRepositoryBlobUrl(url) {
+  const expectedPrefix = `https://github.com/${OWNER}/${REPO}/blob/${BRANCH}/`;
+  return String(url || "").toLowerCase().startsWith(expectedPrefix.toLowerCase());
+}
+
+function getLanguageFilePattern(lang) {
+  assertSupportedLang(lang);
+  return lang === "en" ? `${CASES_DIR}/*.md` : `${CASES_DIR}/*_${lang}.md`;
+}
+
+function getCaseFileLang(fileName) {
+  const base = String(fileName || "").replace(/\.md$/i, "");
+  const languageCodes = SUPPORTED_LANGS
+    .filter(code => code !== "en")
+    .sort((a, b) => b.length - a.length);
+
+  for (const code of languageCodes) {
+    if (base.endsWith(`_${code}`)) return code;
+  }
+
+  return "en";
+}
+
+function getCaseFeatureSlug(fileName) {
+  const lang = getCaseFileLang(fileName);
+  let base = String(fileName || "").replace(/\.md$/i, "");
+
+  if (lang !== "en" && base.endsWith(`_${lang}`)) {
+    base = base.slice(0, -(`_${lang}`.length));
+  }
+
+  return base;
+}
+
+function getCaseFeatureLabel(slug) {
+  const labels = {
+    "ad-creative": "Ad Creative",
+    character: "Character Design",
+    comparison: "Comparison & Community Examples",
+    ecommerce: "E-commerce",
+    portrait: "Portrait & Photography",
+    poster: "Poster & Illustration",
+    ui: "UI & Social Media Mockup"
+  };
+
+  if (labels[slug]) return labels[slug];
+
+  return String(slug || "")
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
 }
 
 function ensureRawTrue(url) {
@@ -574,9 +730,13 @@ function getCacheKey(lang) {
 }
 
 function assertSupportedLang(lang) {
-  if (!LANG_FILES[lang]) {
+  if (!isSupportedLang(lang)) {
     throw new Error(`Unsupported language: ${lang}`);
   }
+}
+
+function isSupportedLang(lang) {
+  return SUPPORTED_LANGS.includes(lang);
 }
 
 function hash(input) {

@@ -147,6 +147,10 @@ button.translate-toggle.is-translated {
   text-decoration: underline;
 }
 
+.source-line + .source-line {
+  margin-top: 2px;
+}
+
 .banner {
   margin-bottom: 10px;
   padding: 9px 10px;

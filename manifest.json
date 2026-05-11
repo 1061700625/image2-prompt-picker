@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "GPT Image2 Prompts",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Browse GPT Image2 prompts from a public GitHub source locally and fill them into ChatGPT quickly.",
   "action": {
     "default_popup": "popup.html",

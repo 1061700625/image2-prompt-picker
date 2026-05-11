@@ -10,33 +10,30 @@
   <header class="header">
     <div>
       <h1>GPT Image2 Prompts</h1>
-      <p>本地缓存 · 多语言 · 分类筛选 · 悬停预览</p>
+      <p>快速浏览和使用 GPT Image 2 图片生成提示词</p>
     </div>
   </header>
 
   <section class="toolbar">
     <label class="field">
-      <span>语言</span>
-      <select id="langSelect"></select>
+      <select id="langSelect" aria-label="语言" title="语言"></select>
     </label>
 
     <button id="sidePanelBtn" type="button">侧边栏</button>
     <button id="checkBtn" type="button">检查更新</button>
-    <button id="syncBtn" type="button" class="primary">同步</button>
     <button id="clearCacheBtn" type="button">清空缓存</button>
+    <button id="syncBtn" type="button" class="primary">同步</button>
   </section>
 
   <div class="filter-row">
     <label class="field category-field">
-      <span>分类</span>
-      <select id="categorySelect">
+      <select id="categorySelect" aria-label="分类" title="分类">
         <option value="">全部分类</option>
       </select>
     </label>
 
     <label class="field search-field">
-      <span>搜索</span>
-      <input id="searchInput" class="search" placeholder="标题、分类、Case 编号或 Prompt" />
+      <input id="searchInput" class="search" aria-label="搜索" title="搜索" placeholder="标题、分类、Case 编号或 Prompt" />
     </label>
   </div>
 
@@ -46,7 +43,10 @@
 
   <div id="status" class="status">正在加载...</div>
 
-  <div class="source-note">作者：<a id="authorLink" href="https://github.com/1061700625/image2-prompt-picker" target="_blank" rel="noreferrer">小锋学长生活大爆炸</a> · 数据来源：<a href="https://github.com/EvoLinkAI/awesome-gpt-image-2-prompts" target="_blank" rel="noreferrer">EvoLinkAI/awesome-gpt-image-2-prompts</a></div>
+  <div class="source-note">
+    <div class="source-line">作者：<a id="authorLink" href="https://github.com/1061700625/image2-prompt-picker" target="_blank" rel="noreferrer">小锋学长生活大爆炸</a></div>
+    <div class="source-line">数据来源：<a href="https://github.com/EvoLinkAI/awesome-gpt-image-2-API-and-Prompts" target="_blank" rel="noreferrer">EvoLinkAI/awesome-gpt-image-2-API-and-Prompts</a></div>
+  </div>
 
   <main id="promptList" class="list"></main>
 
